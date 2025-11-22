@@ -1,0 +1,1 @@
+This is a very draft project, looking at building a M365 CDN for macOS with a degree of version drag.
