@@ -1,10 +1,35 @@
-# Python-generated files
+.env
+.venv/
+venv/
 __pycache__/
-*.py[oc]
-build/
+*.py[cod]
+*.egg-info/
 dist/
-wheels/
-*.egg-info
+build/
+.pytest_cache/
+.coverage
 
-# Virtual environments
-.venv
+*.pkg
+*.dmg
+
+.uv/
+uv.lock
+.python-version
+
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
