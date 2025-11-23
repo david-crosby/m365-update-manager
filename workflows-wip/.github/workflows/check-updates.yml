@@ -1,0 +1,63 @@
+name: Check M365 Updates
+
+on:
+  schedule:
+    - cron: '0 */6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  check-updates:
+    runs-on: ubuntu-latest
+    outputs:
+      updated_count: ${{ steps.check.outputs.updated_count }}
+      updated_apps: ${{ steps.check.outputs.updated_apps }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Check for updates
+        id: check
+        env:
+          AZURE_STORAGE_CONNECTION_STRING: ${{ secrets.AZURE_STORAGE_CONNECTION_STRING }}
+          AZURE_CONTAINER_NAME: ${{ secrets.AZURE_CONTAINER_NAME }}
+          UPDATE_CHANNEL: ${{ vars.UPDATE_CHANNEL || 'current' }}
+          LAG_DAYS: ${{ vars.LAG_DAYS || '14' }}
+        run: |
+          uv run python check_updates.py --manifest manifest.json
+
+      - name: Commit manifest changes
+        if: steps.check.outputs.updated_count > 0
+        run: |
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git add manifest.json
+          git commit -m "chore(updates): stage ${{ steps.check.outputs.updated_apps }}"
+          git push
+
+      - name: Create notification
+        if: steps.check.outputs.updated_count > 0
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const apps = '${{ steps.check.outputs.updated_apps }}';
+            const count = '${{ steps.check.outputs.updated_count }}';
+            
+            github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `${count} M365 app(s) staged for deployment`,
+              body: `The following apps have been staged and will be promoted after the lag period:\n\n${apps.split(',').map(app => `- ${app}`).join('\n')}`,
+              labels: ['automated', 'updates']
+            });

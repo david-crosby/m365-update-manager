@@ -1,0 +1,83 @@
+name: Promote Updates
+
+on:
+  schedule:
+    - cron: '0 8 * * *'
+  workflow_dispatch:
+    inputs:
+      force:
+        description: 'Force promotion regardless of lag period'
+        required: false
+        type: boolean
+        default: false
+      apps:
+        description: 'Specific apps to promote (space-separated)'
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    outputs:
+      promoted_count: ${{ steps.promote.outputs.promoted_count }}
+      promoted_apps: ${{ steps.promote.outputs.promoted_apps }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Promote updates
+        id: promote
+        env:
+          AZURE_STORAGE_CONNECTION_STRING: ${{ secrets.AZURE_STORAGE_CONNECTION_STRING }}
+          AZURE_CONTAINER_NAME: ${{ secrets.AZURE_CONTAINER_NAME }}
+          UPDATE_CHANNEL: ${{ vars.UPDATE_CHANNEL || 'current' }}
+          LAG_DAYS: ${{ vars.LAG_DAYS || '14' }}
+        run: |
+          ARGS="--manifest manifest.json"
+          
+          if [ "${{ inputs.force }}" == "true" ]; then
+            ARGS="$ARGS --force"
+          fi
+          
+          if [ -n "${{ inputs.apps }}" ]; then
+            ARGS="$ARGS --apps ${{ inputs.apps }}"
+          fi
+          
+          uv run python promote.py $ARGS
+
+      - name: Commit manifest changes
+        if: steps.promote.outputs.promoted_count > 0
+        run: |
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git add manifest.json
+          git commit -m "chore(updates): promote ${{ steps.promote.outputs.promoted_apps }} to live"
+          git push
+
+      - name: Create release notification
+        if: steps.promote.outputs.promoted_count > 0
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const apps = '${{ steps.promote.outputs.promoted_apps }}';
+            const count = '${{ steps.promote.outputs.promoted_count }}';
+            
+            github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `${count} M365 app(s) promoted to live`,
+              body: `The following apps have been promoted to live:\n\n${apps.split(',').map(app => `- ${app}`).join('\n')}\n\nThese updates are now available for deployment.`,
+              labels: ['automated', 'deployment']
+            });

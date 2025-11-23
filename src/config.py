@@ -107,14 +107,26 @@ APPS = {
 
 class Settings:
     def __init__(self):
-        self.azure_storage_connection_string = os.environ.get("AZURE_STORAGE_CONNECTION_STRING")
-        if not self.azure_storage_connection_string:
-            raise ValueError("AZURE_STORAGE_CONNECTION_STRING is required")
+        conn_str = os.environ.get("AZURE_STORAGE_CONNECTION_STRING")
+        if not conn_str:
+            raise ValueError("AZURE_STORAGE_CONNECTION_STRING required")
+        self.azure_storage_connection_string = conn_str
         
         self.azure_container_name = os.environ.get("AZURE_CONTAINER_NAME", "m365-updates")
-        self.channel = os.environ.get("UPDATE_CHANNEL", "current")
-        self.lag_days = int(os.environ.get("LAG_DAYS", "14"))
+        
+        channel = os.environ.get("UPDATE_CHANNEL", "current")
+        if channel not in CDN_URLS:
+            valid = ", ".join(CDN_URLS.keys())
+            raise ValueError(f"UPDATE_CHANNEL must be one of: {valid}")
+        self.channel = channel
+        
+        try:
+            self.lag_days = int(os.environ.get("LAG_DAYS", "14"))
+            if self.lag_days < 0:
+                raise ValueError("LAG_DAYS cannot be negative")
+        except (ValueError, TypeError) as e:
+            raise ValueError(f"Invalid LAG_DAYS: {e}")
     
     @property
     def cdn_base_url(self):
-        return CDN_URLS.get(self.channel.lower(), CDN_URLS["current"])
+        return CDN_URLS[self.channel]

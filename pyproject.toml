@@ -19,11 +19,14 @@ dev = [
     "pytest>=8.0.0",
     "pytest-cov>=4.1.0",
     "ruff>=0.3.0",
+    "mypy>=1.8.0",
+    "types-requests>=2.31.0",
+    "pre-commit>=3.6.0",
 ]
 
 [project.scripts]
-check-updates = "src.check_updates:main"
-promote = "src.promote:main"
+check-updates = "check_updates:main"
+promote = "promote:main"
 
 [project.urls]
 Repository = "https://github.com/david-crosby/m365-update-manager"
@@ -46,3 +49,10 @@ ignore = ["E501"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-v --cov=src --cov-report=term-missing"
+pythonpath = ["."]
+
+[tool.mypy]
+python_version = "3.11"
+warn_unused_configs = true
+check_untyped_defs = true
+no_implicit_optional = true

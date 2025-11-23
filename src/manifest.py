@@ -42,25 +42,26 @@ class ManifestManager:
         self.manifest = self._load()
     
     def _load(self):
-        if self.manifest_path.exists():
-            try:
-                with open(self.manifest_path) as f:
-                    data = json.load(f)
-                return self._parse_manifest(data)
-            except Exception as e:
-                logger.error(f"Failed to parse manifest: {e}")
-                return Manifest()
-        return Manifest()
+        if not self.manifest_path.exists():
+            return Manifest()
+        
+        try:
+            with open(self.manifest_path) as f:
+                data = json.load(f)
+            return self._parse(data)
+        except (json.JSONDecodeError, Exception) as e:
+            logger.error(f"Failed to load manifest: {e}")
+            return Manifest()
     
-    def _parse_manifest(self, data):
+    def _parse(self, data):
         manifest = Manifest(
             last_updated=data.get("last_updated", ""),
             channel=data.get("channel", "current"),
             lag_days=data.get("lag_days", 14),
         )
         
-        for app_key, app_data in data.get("apps", {}).items():
-            app_state = AppState(
+        for key, app_data in data.get("apps", {}).items():
+            app = AppState(
                 app_id=app_data.get("app_id", ""),
                 name=app_data.get("name", ""),
                 blob_name=app_data.get("blob_name", ""),
@@ -69,7 +70,7 @@ class ManifestManager:
             for tier in ["staged", "live", "previous"]:
                 tier_data = app_data.get(tier)
                 if tier_data:
-                    package = PackageState(
+                    pkg = PackageState(
                         version=tier_data.get("version", ""),
                         sha256=tier_data.get("sha256", ""),
                         download_url=tier_data.get("download_url", ""),
@@ -78,9 +79,9 @@ class ManifestManager:
                         file_size=tier_data.get("file_size"),
                         min_os=tier_data.get("min_os"),
                     )
-                    setattr(app_state, tier, package)
+                    setattr(app, tier, pkg)
             
-            manifest.apps[app_key] = app_state
+            manifest.apps[key] = app
         
         return manifest
     
@@ -94,22 +95,25 @@ class ManifestManager:
             "apps": {},
         }
         
-        for app_key, app_state in self.manifest.apps.items():
+        for key, app in self.manifest.apps.items():
             app_data = {
-                "app_id": app_state.app_id,
-                "name": app_state.name,
-                "blob_name": app_state.blob_name,
+                "app_id": app.app_id,
+                "name": app.name,
+                "blob_name": app.blob_name,
             }
+            
             for tier in ["staged", "live", "previous"]:
-                package = getattr(app_state, tier)
-                if package:
-                    app_data[tier] = asdict(package)
-            data["apps"][app_key] = app_data
+                pkg = getattr(app, tier)
+                if pkg:
+                    app_data[tier] = asdict(pkg)
+            
+            data["apps"][key] = app_data
         
         self.manifest_path.parent.mkdir(parents=True, exist_ok=True)
         with open(self.manifest_path, "w") as f:
             json.dump(data, f, indent=2)
-        logger.info(f"Saved manifest")
+        
+        logger.info("Saved manifest")
     
     def get_app_state(self, app_key):
         return self.manifest.apps.get(app_key)
@@ -117,7 +121,8 @@ class ManifestManager:
     def set_app_state(self, app_key, state):
         self.manifest.apps[app_key] = state
     
-    def stage_update(self, app_key, app_id, name, blob_name, version, sha256, download_url, file_size=None, min_os=None):
+    def stage_update(self, app_key, app_id, name, blob_name, version, 
+                     sha256, download_url, file_size=None, min_os=None):
         state = self.get_app_state(app_key)
         if not state:
             state = AppState(app_id=app_id, name=name, blob_name=blob_name)
@@ -130,8 +135,9 @@ class ManifestManager:
             file_size=file_size,
             min_os=min_os,
         )
+        
         self.set_app_state(app_key, state)
-        logger.info(f"Staged {name} version {version}")
+        logger.info(f"Staged {name} {version}")
     
     def promote_update(self, app_key):
         state = self.get_app_state(app_key)
@@ -153,9 +159,10 @@ class ManifestManager:
         if not state:
             return True
         
-        if state.staged and state.staged.sha256.lower() == new_sha256.lower():
+        new_hash = new_sha256.lower()
+        if state.staged and state.staged.sha256.lower() == new_hash:
             return False
-        if state.live and state.live.sha256.lower() == new_sha256.lower():
+        if state.live and state.live.sha256.lower() == new_hash:
             return False
         
         return True
@@ -165,15 +172,15 @@ class ManifestManager:
         if not state or not state.staged or not state.staged.staged_at:
             return False
         
-        staged_at = datetime.fromisoformat(state.staged.staged_at.replace("Z", "+00:00"))
+        staged = datetime.fromisoformat(state.staged.staged_at.replace("Z", "+00:00"))
         now = datetime.now(timezone.utc)
-        days_staged = (now - staged_at).days
+        days_waiting = (now - staged).days
         
-        return days_staged >= lag_days
+        return days_waiting >= lag_days
     
     def get_apps_ready_for_promotion(self, lag_days):
         ready = []
-        for app_key in self.manifest.apps:
-            if self.is_ready_for_promotion(app_key, lag_days):
-                ready.append(app_key)
+        for key in self.manifest.apps:
+            if self.is_ready_for_promotion(key, lag_days):
+                ready.append(key)
         return ready
